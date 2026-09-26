@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pakistan Carbon Emissions — a monitoring readout</title>
+<meta name="description" content="National and per-capita CO2 emissions for Pakistan, 1960-2024, from the Our World in Data Global Carbon Budget.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* --------------------------------------------------------------------------
+   Design tokens. Everything visual is defined once here, so the charts and
+   the page chrome can never drift apart: the JavaScript reads these same
+   variables at runtime rather than repeating hex codes.
+   -------------------------------------------------------------------------- */
+:root {
+  --paper:      #E8EDEE;   /* page background: cool, chart-paper grey */
+  --panel:      #FAFBFB;
+  --rule:       #C6D0D2;
+  --ink:        #12211F;
+  --ink-soft:   #556462;
+
+  --pakistan:   #0F6B4F;   /* the subject country is the only saturated line */
+  --comparator: #98A6A5;   /* neighbours recede into grey */
+  --secondary:  #3E7FA6;   /* the second measure on a dual-axis chart */
+
+  --coal:       #2E3A3C;
+  --oil:        #8A4B2A;
+  --gas:        #3E7FA6;
+  --cement:     #A6A196;
+  --flaring:    #C7572C;
+
+  --grid:       #D5DDDE;
+  --measure:    68ch;
+}
+
+/* Theme-aware: the page may render inside a dark viewer. Guarded so an
+   explicit light choice still wins. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:    #131A1B;
+    --panel:    #1A2223;
+    --rule:     #2E3A3B;
+    --ink:      #E6ECEB;
+    --ink-soft: #94A3A1;
+    --pakistan: #37B98A;
+    --comparator: #5E6D6C;
+    --grid:     #263031;
+    --coal:     #8E9EA1;
+    --cement:   #C2BCAF;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #131A1B; --panel: #1A2223; --rule: #2E3A3B;
+  --ink: #E6ECEB; --ink-soft: #94A3A1;
+  --pakistan: #37B98A; --comparator: #5E6D6C; --grid: #263031;
+  --coal: #8E9EA1; --cement: #C2BCAF;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 1.5rem 4rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-weight: 400;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;   /* digits line up column-to-column */
+}
+
+.sheet { max-width: 1040px; margin: 0 auto; }
+
+/* ---- Masthead ---------------------------------------------------------- */
+
+header { padding: 3.5rem 0 1.75rem; }
+
+h1 {
+  font-size: clamp(1.9rem, 4.2vw, 2.9rem);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0 0 0.9rem;
+  max-width: 22ch;
+}
+
+.thesis {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: 1.02rem;
+  color: var(--ink-soft);
+}
+
+/* ---- Readout strip: four figures, separated by rules rather than boxed
+       into cards. The rule encodes "these are columns of one instrument". -- */
+
+.readout {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin: 2.25rem 0 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.readout div {
+  padding: 1.1rem 1.25rem 1.2rem;
+  border-left: 1px solid var(--rule);
+}
+.readout div:first-child { border-left: 0; padding-left: 0; }
+
+.figure {
+  display: block;
+  font-size: 1.85rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.figure span { font-size: 0.92rem; font-weight: 400; color: var(--ink-soft); }
+
+.caption {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
+/* ---- Chart panels ------------------------------------------------------ */
+
+.panel { margin-top: 2.75rem; }
+
+.grid-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.75rem 2.25rem;
+  margin-top: 2.75rem;
+}
+.grid-two .panel { margin-top: 0; }
+
+h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0 0 0.3rem;
+}
+
+.read-as {
+  margin: 0 0 1.1rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  max-width: var(--measure);
+}
+
+.plot {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  padding: 0.85rem 0.9rem 0.6rem;
+  height: 300px;
+}
+.plot.tall { height: 380px; }
+
+/* ---- Notes ------------------------------------------------------------- */
+
+.notes { margin-top: 0; }
+.notes ul { margin: 0; padding-left: 1.1rem; }
+.notes li { margin-bottom: 0.65rem; font-size: 0.92rem; color: var(--ink-soft); max-width: var(--measure); }
+.notes li strong { color: var(--ink); font-weight: 600; }
+
+footer {
+  margin-top: 3.5rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+  max-width: var(--measure);
+}
+footer a { color: inherit; }
+
+#status { padding: 4rem 0; color: var(--ink-soft); }
+
+:focus-visible { outline: 2px solid var(--pakistan); outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .grid-two { grid-template-columns: 1fr; }
+  .readout { grid-template-columns: 1fr 1fr; }
+  .readout div:nth-child(3) { border-left: 0; padding-left: 0; }
+  .readout div:nth-child(-n+2) { border-bottom: 1px solid var(--rule); }
+  .plot { height: 260px; }
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <p id="status">Loading emissions data…</p>
+  <div id="app" hidden>
+
+    <header>
+      <h1>Pakistan emits little, and is warming fast anyway</h1>
+      <p class="thesis" id="thesis"></p>
+    </header>
+
+    <section class="readout" id="readout"></section>
+
+    <section class="panel">
+      <h2>National total against emissions per person</h2>
+      <p class="read-as">Two measures of the same country. The total (left axis) is what the
+      atmosphere receives; per person (right axis) is closer to a measure of how people live.
+      They do not move together, because population growth sits between them.</p>
+      <div class="plot tall"><canvas id="chart-trend"></canvas></div>
+    </section>
+
+    <div class="grid-two">
+      <section class="panel">
+        <h2>How the region compares, per person</h2>
+        <p class="read-as">Pakistan against three neighbours on the same scale.</p>
+        <div class="plot"><canvas id="chart-peers"></canvas></div>
+      </section>
+
+      <section class="panel">
+        <h2>What the total is made of</h2>
+        <p class="read-as">Fuel and process sources, stacked to the national total.</p>
+        <div class="plot"><canvas id="chart-sources"></canvas></div>
+      </section>
+
+      <section class="panel">
+        <h2>Growth against emissions</h2>
+        <p class="read-as">One point per year. Moving right is getting richer; moving up is
+        emitting more per person. A path that bends flat is decoupling.</p>
+        <div class="plot"><canvas id="chart-decoupling"></canvas></div>
+      </section>
+
+      <section class="panel notes">
+        <h2>What this suggests to monitor next</h2>
+        <p class="read-as">Three limits of national annual data, and what would close them.</p>
+        <ul>
+          <li><strong>Annual national totals cannot see a city.</strong> Urban policy acts on
+          neighbourhoods and corridors, so the useful unit is a gridded inventory — satellite
+          NO₂ and CO columns, or a bottom-up inventory built from traffic counts and
+          industrial registers.</li>
+          <li><strong>Production, not consumption.</strong> These figures count emissions where
+          fuel is burned. Consumption-based accounting reassigns them to where goods are used,
+          and changes who is responsible for what.</li>
+          <li><strong>One value per year is too coarse for intervention.</strong> Hourly or daily
+          series are what let you attribute a change to a policy, a fuel-price shock or a
+          weather inversion.</li>
+        </ul>
+      </section>
+    </div>
+
+    <footer>
+      Data: Our World in Data, <a href="https://github.com/owid/co2-data">CO₂ and Greenhouse Gas
+      Emissions</a> (Global Carbon Budget), CC BY. Prepared with
+      <code>prepare_data.py</code>; figures are production-based CO₂ only and exclude land-use
+      change and non-CO₂ gases. <span id="meta-line"></span>
+    </footer>
+
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   Read the design tokens back out of CSS, so chart colours are defined in
+   exactly one place and follow the light/dark theme automatically.
+   --------------------------------------------------------------------------- */
+const token = name =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* Chart.js defaults applied once, rather than repeated in every config. */
+function applyDefaults() {
+  Chart.defaults.font.family = '"IBM Plex Sans", system-ui, sans-serif';
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = token("--ink-soft");
+  Chart.defaults.animation = reduceMotion ? false : { duration: 400 };
+  Chart.defaults.maintainAspectRatio = false;   /* the CSS height wins */
+  Chart.defaults.plugins.legend.labels.boxWidth = 10;
+  Chart.defaults.plugins.legend.labels.boxHeight = 10;
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+}
+
+/* Shared axis styling: light gridlines, no chartjunk. */
+const axis = (title, extra = {}) => ({
+  title: { display: Boolean(title), text: title, color: token("--ink-soft") },
+  grid: { color: token("--grid"), drawTicks: false },
+  border: { color: token("--rule") },
+  ticks: { padding: 6, maxRotation: 0, autoSkipPadding: 20 },
+  ...extra,
+});
+
+const charts = [];
+
+/* --- Chart 1: total and per capita on two axes ---------------------------- */
+function drawTrend(d) {
+  return new Chart(document.getElementById("chart-trend"), {
+    type: "line",
+    data: {
+      labels: d.years,
+      datasets: [
+        {
+          label: "Total (Mt CO₂)",
+          data: d.total_mt,
+          yAxisID: "y",
+          borderColor: token("--pakistan"),
+          backgroundColor: token("--pakistan") + "1A",
+          borderWidth: 2, pointRadius: 0, fill: true, tension: 0.15,
+        },
+        {
+          label: "Per person (t CO₂)",
+          data: d.per_capita_t,
+          yAxisID: "y1",
+          borderColor: token("--secondary"),
+          borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0, tension: 0.15,
+        },
+      ],
+    },
+    options: {
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: axis(null),
+        y:  axis("million tonnes", { position: "left", beginAtZero: true }),
+        /* The right-hand axis must not repeat the left one's gridlines. */
+        y1: axis("tonnes per person", {
+          position: "right", beginAtZero: true, grid: { drawOnChartArea: false },
+        }),
+      },
+    },
+  });
+}
+
+/* --- Chart 2: four countries, one highlighted ----------------------------- */
+function drawPeers(d) {
+  const datasets = Object.entries(d.series).map(([country, values]) => {
+    const isSubject = country === "Pakistan";
+    return {
+      label: country,
+      data: values,
+      borderColor: isSubject ? token("--pakistan") : token("--comparator"),
+      borderWidth: isSubject ? 2.4 : 1.2,
+      borderDash: isSubject ? [] : [3, 3],
+      pointRadius: 0,
+      tension: 0.15,
+      /* The subject country is drawn last so it sits on top. */
+      order: isSubject ? 0 : 1,
+    };
+  });
+
+  return new Chart(document.getElementById("chart-peers"), {
+    type: "line",
+    data: { labels: d.years, datasets },
+    options: {
+      interaction: { mode: "index", intersect: false },
+      scales: { x: axis(null), y: axis("t CO₂ per person", { beginAtZero: true }) },
+    },
+  });
+}
+
+/* --- Chart 3: stacked sources -------------------------------------------- */
+function drawSources(d) {
+  const parts = [
+    ["Oil", "oil", "--oil"],
+    ["Gas", "gas", "--gas"],
+    ["Coal", "coal", "--coal"],
+    ["Cement", "cement", "--cement"],
+    ["Flaring", "flaring", "--flaring"],
+  ];
+
+  return new Chart(document.getElementById("chart-sources"), {
+    type: "line",
+    data: {
+      labels: d.years,
+      datasets: parts.map(([label, key, colour]) => ({
+        label,
+        data: d[key],
+        backgroundColor: token(colour),
+        borderColor: token(colour),
+        borderWidth: 0, pointRadius: 0, fill: true, tension: 0.15,
+      })),
+    },
+    options: {
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: axis(null),
+        /* stacked:true is what turns overlapping areas into a stack that
+           sums to the national total. */
+        y: axis("million tonnes", { stacked: true, beginAtZero: true }),
+      },
+    },
+  });
+}
+
+/* --- Chart 4: the decoupling path ---------------------------------------- */
+function drawDecoupling(points) {
+  return new Chart(document.getElementById("chart-decoupling"), {
+    type: "scatter",
+    data: {
+      datasets: [{
+        label: "Pakistan, one point per year",
+        data: points.map(p => ({ x: p.gdp_per_capita, y: p.co2_per_capita, year: p.year })),
+        showLine: true,                    /* connect the years into a path */
+        borderColor: token("--pakistan"),
+        backgroundColor: token("--pakistan"),
+        borderWidth: 1.4,
+        pointRadius: 2.5,
+        pointHoverRadius: 5,
+      }],
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            /* Without this the tooltip would show bare coordinates and the
+               reader would lose the one thing that matters: which year. */
+            label: c => `${c.raw.year}: $${c.raw.x.toLocaleString()} per person, `
+                      + `${c.raw.y} t CO₂`,
+          },
+        },
+      },
+      scales: {
+        x: axis("GDP per person (int-$)"),
+        y: axis("t CO₂ per person"),
+      },
+    },
+  });
+}
+
+/* --- Headline figures ----------------------------------------------------- */
+function fillReadout(h) {
+  document.getElementById("thesis").textContent =
+    `In ${h.year} Pakistan released ${h.co2_total_mt} million tonnes of CO₂ — `
+    + `${h.share_global_pct}% of the world total, and ${h.co2_per_capita_t} tonnes per person `
+    + `against a world average of ${h.world_per_capita_t}. The question this dashboard asks is `
+    + `not whether the number is large, but whether it is measured finely enough to act on.`;
+
+  const cells = [
+    [h.co2_total_mt, "Mt CO₂", `national total, ${h.year}`],
+    [h.co2_per_capita_t, "t", `per person — world average ${h.world_per_capita_t} t`],
+    [h.share_global_pct, "%", "of global emissions"],
+    [h.per_capita_rank, `of ${h.countries_ranked}`, "rank per person, highest first"],
+  ];
+
+  document.getElementById("readout").innerHTML = cells.map(([value, unit, caption]) => `
+    <div>
+      <b class="figure">${value} <span>${unit}</span></b>
+      <span class="caption">${caption}</span>
+    </div>`).join("");
+}
+
+/* --- Load, then draw ------------------------------------------------------ */
+async function start() {
+  const status = document.getElementById("status");
+  try {
+    const response = await fetch("data.json");
+    if (!response.ok) throw new Error(`data.json returned ${response.status}`);
+    const d = await response.json();
+
+    applyDefaults();
+    fillReadout(d.headline);
+    document.getElementById("meta-line").textContent = `Prepared ${d.meta.prepared_on}.`;
+
+    status.hidden = true;
+    document.getElementById("app").hidden = false;
+
+    charts.push(
+      drawTrend(d.trend),
+      drawPeers(d.peers),
+      drawSources(d.sources),
+      drawDecoupling(d.decoupling),
+    );
+
+    /* Redraw on theme change so chart colours follow the page. */
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      while (charts.length) charts.pop().destroy();
+      applyDefaults();
+      charts.push(
+        drawTrend(d.trend), drawPeers(d.peers),
+        drawSources(d.sources), drawDecoupling(d.decoupling),
+      );
+    });
+  } catch (error) {
+    status.textContent =
+      `Could not load data.json — ${error.message}. `
+      + `Run "python prepare_data.py", then serve the folder with `
+      + `"python -m http.server" and open http://localhost:8000. `
+      + `Opening the file directly will not work: browsers block fetch() on file:// URLs.`;
+  }
+}
+
+start();
+</script>
+</body>
+</html>
