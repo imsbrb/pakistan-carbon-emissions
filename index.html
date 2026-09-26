@@ -73,7 +73,7 @@ body {
   font-variant-numeric: tabular-nums;   /* digits line up column-to-column */
 }
 
-.sheet { max-width: 1040px; margin: 0 auto; }
+.sheet { max-width: 1040px; margin: 0 auto; min-width: 0; }
 
 /* ---- Masthead ---------------------------------------------------------- */
 
@@ -132,14 +132,15 @@ h1 {
 
 /* ---- Chart panels ------------------------------------------------------ */
 
-.panel { margin-top: 2.75rem; }
+.panel { margin-top: 2.75rem; min-width: 0; }
 
 .grid-two {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 2.75rem 2.25rem;
   margin-top: 2.75rem;
 }
+.grid-two > * { min-width: 0; }
 .grid-two .panel { margin-top: 0; }
 
 h2 {
@@ -161,9 +162,12 @@ h2 {
   background: var(--panel);
   border: 1px solid var(--rule);
   padding: 0.85rem 0.9rem 0.6rem;
-  height: 300px;
+  height: clamp(230px, 34vh, 310px);
+  min-width: 0;
+  overflow: hidden;
 }
-.plot.tall { height: 380px; }
+.plot.tall { height: clamp(280px, 46vh, 400px); }
+.plot canvas { display: block; }
 
 /* ---- Notes ------------------------------------------------------------- */
 
@@ -191,7 +195,14 @@ footer a { color: inherit; }
   .readout { grid-template-columns: 1fr 1fr; }
   .readout div:nth-child(3) { border-left: 0; padding-left: 0; }
   .readout div:nth-child(-n+2) { border-bottom: 1px solid var(--rule); }
-  .plot { height: 260px; }
+}
+
+@media (max-width: 560px) {
+  body { padding: 0 1rem 3rem; }
+  header { padding: 2.25rem 0 1.25rem; }
+  .readout { grid-template-columns: 1fr; }
+  .readout div { border-left: 0; padding-left: 0; border-bottom: 1px solid var(--rule); }
+  .readout div:last-child { border-bottom: 0; }
 }
 </style>
 </head>
@@ -279,15 +290,20 @@ function applyDefaults() {
   Chart.defaults.font.size = 12;
   Chart.defaults.color = token("--ink-soft");
   Chart.defaults.animation = reduceMotion ? false : { duration: 400 };
+  Chart.defaults.responsive = true;
   Chart.defaults.maintainAspectRatio = false;   /* the CSS height wins */
+  Chart.defaults.resizeDelay = 120;             /* coalesce rapid resizes */
   Chart.defaults.plugins.legend.labels.boxWidth = 10;
   Chart.defaults.plugins.legend.labels.boxHeight = 10;
   Chart.defaults.plugins.legend.labels.usePointStyle = true;
 }
 
 /* Shared axis styling: light gridlines, no chartjunk. */
+const isNarrow = () => window.matchMedia("(max-width: 560px)").matches;
+
 const axis = (title, extra = {}) => ({
-  title: { display: Boolean(title), text: title, color: token("--ink-soft") },
+  /* On a phone an axis title costs more width than it explains. */
+  title: { display: Boolean(title) && !isNarrow(), text: title, color: token("--ink-soft") },
   grid: { color: token("--grid"), drawTicks: false },
   border: { color: token("--rule") },
   ticks: { padding: 6, maxRotation: 0, autoSkipPadding: 20 },
@@ -468,22 +484,27 @@ async function start() {
     status.hidden = true;
     document.getElementById("app").hidden = false;
 
-    charts.push(
-      drawTrend(d.trend),
-      drawPeers(d.peers),
-      drawSources(d.sources),
-      drawDecoupling(d.decoupling),
-    );
-
-    /* Redraw on theme change so chart colours follow the page. */
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    /* Chart.js resizes itself as the container changes, so ordinary window
+       resizing needs no help. A full rebuild is only needed when something
+       baked into the config changes: the theme colours, or whether axis
+       titles are shown at all. */
+    const renderAll = () => {
       while (charts.length) charts.pop().destroy();
       applyDefaults();
       charts.push(
-        drawTrend(d.trend), drawPeers(d.peers),
-        drawSources(d.sources), drawDecoupling(d.decoupling),
+        drawTrend(d.trend),
+        drawPeers(d.peers),
+        drawSources(d.sources),
+        drawDecoupling(d.decoupling),
       );
-    });
+    };
+
+    renderAll();
+
+    window.matchMedia("(prefers-color-scheme: dark)")
+          .addEventListener("change", renderAll);
+    window.matchMedia("(max-width: 560px)")
+          .addEventListener("change", renderAll);
   } catch (error) {
     status.textContent =
       `Could not load data.json — ${error.message}. `
